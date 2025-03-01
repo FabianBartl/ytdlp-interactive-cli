@@ -19,7 +19,7 @@ CONFIG = {
     "audio_format": "best",
     "video_format": "best",
     "thumbnail_format": None,
-    "output_dirpath": Path(r"C:\Users\fabia\Downloads"),
+    "output_dirpath": Path.home() / "Downloads",
 }
 
 
