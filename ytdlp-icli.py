@@ -1,9 +1,44 @@
-
 """
-External Docs:
-- https://github.com/yt-dlp/yt-dlp
-- https://github.com/aisk/pick
-- https://ffmpeg.org/ffmpeg.html
+ytdlp-icli.py
+    An interactive commandline wrapper for yt-dlp.
+
+Author:             Fabian Bartl
+E-Mail:             fabian@informatic-freak.de
+Repository:         https://github.com/FabianBartl/ytdlp-interactive-cli
+Last major update:  01.03.2025
+
+Requirements:
+    - pick          # not pypick !
+    - quantiphy
+    - colorama
+
+Used Tools:
+    - https://github.com/yt-dlp/yt-dlp
+    - https://ffmpeg.org/ffmpeg.html
+    - https://github.com/aisk/pick
+
+License:
+    MIT License
+
+    Copyright (c) 2025 Fabian Bartl
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
 """
 
 import os
@@ -26,7 +61,7 @@ CONFIG = {
     "audio_format": "best",
     "video_format": "best",
     "thumbnail_format": None,
-    "output_dirpath": Path.home() / "Downloads",
+    "output_dirpath": Path.home() / "Downloads",        # set to own download path
 }
 
 
@@ -60,8 +95,6 @@ def request_ytdlp_metadata(yturl: str) -> dict:
         print(f"{Fore.RED}Critical error:")
         print(process.stderr)
         exit()
-    with open("ytdlp_metadata.json", "w", encoding="utf-8") as file:
-        file.write(process.stdout)
     metadata = json.loads(process.stdout)
     
     formats = {"audio": [], "video": [], "image": [], "metadata": metadata}
@@ -205,12 +238,16 @@ def main() -> None:
     global CONFIG
     
     outdir = CONFIG["output_dirpath"].absolute()
+    if not outdir.exists():
+        print(f"{Fore.RED}output directory not found: [edit line 64 to change it]")
+        print(str(outdir))
+        return
     print_command(["cd", outdir])
     os.chdir(str(outdir))
     
-    if not check_dependency_path(CONFIG["ffmpeg_bin"], "ffmpeg not found at"):
+    if not check_dependency_path(CONFIG["ffmpeg_bin"], "ffmpeg not found"):
         return
-    if not check_dependency_path(CONFIG["ytdlp_bin"], "yt-dlp not found at"):
+    if not check_dependency_path(CONFIG["ytdlp_bin"], "yt-dlp not found"):
         return
     
     input_url = input("YouTube URL: ").strip()
@@ -237,7 +274,7 @@ def main() -> None:
     fmt = filter(bool, [audio_format, video_format])
     ytdlp_download(yturl, "+".join(fmt), ytdlp_args)
     if not filepath.exists():
-        print(f"{Fore.RED}couldn't find downloaded file, expected it here:")
+        print(f"{Fore.RED}downloaded file not found, expected it here:")
         print(str(filepath))
         return
     
@@ -248,7 +285,8 @@ def main() -> None:
     # remux_path = ffmpeg_remux(filepath, audio_only=audio_only)
     # print(f"{Fore.GREEN}remuxed output stored here:\n", str(remux_path.absolute()))
 
+    input("press ENTER to exit\n")
+
 
 if __name__ == "__main__":
     main()
-    input("press ENTER to exit\n")

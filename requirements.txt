@@ -1,4 +1,3 @@
-tqdm
-colorama
 pick  # not pypick !
 quantiphy
+colorama
