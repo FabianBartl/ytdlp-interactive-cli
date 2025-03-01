@@ -1,4 +1,11 @@
 
+"""
+External Docs:
+- https://github.com/yt-dlp/yt-dlp
+- https://github.com/aisk/pick
+- https://ffmpeg.org/ffmpeg.html
+"""
+
 import os
 import json
 import pick
@@ -244,3 +251,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    input("press ENTER to exit\n")
