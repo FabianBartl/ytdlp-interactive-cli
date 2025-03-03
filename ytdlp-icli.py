@@ -5,17 +5,16 @@ ytdlp-icli.py
 Author:             Fabian Bartl
 E-Mail:             fabian@informatic-freak.de
 Repository:         https://github.com/FabianBartl/ytdlp-interactive-cli
-Last major update:  01.03.2025
+Last major update:  03.03.2025
 
-Requirements:
+Python Requirements:
     - pick          # not pypick !
     - quantiphy
     - colorama
 
-Used Tools:
-    - https://github.com/yt-dlp/yt-dlp
-    - https://ffmpeg.org/ffmpeg.html
-    - https://github.com/aisk/pick
+Required Tools:
+    - ffmpeg
+    - yt-dlp        # can be installed via pip
 
 License:
     MIT License
@@ -42,6 +41,7 @@ License:
 """
 
 import os
+import re
 import json
 import pick
 import subprocess as sp
@@ -50,7 +50,7 @@ from quantiphy import Quantity
 from pathlib import Path
 from typing import Optional, Union, Any
 
-from colorama import Fore, Style
+from colorama import Fore, Back, Style
 from colorama import init as colorama_init
 colorama_init(autoreset=True)
 
@@ -61,7 +61,7 @@ CONFIG = {
     "audio_format": "best",
     "video_format": "best",
     "thumbnail_format": None,
-    "output_dirpath": Path.home() / "Downloads",        # set to own download path
+    "output_dirpath": Path.home() / "Downloads",        # can be set to another download path (non-existant parents will be created)
 }
 
 
@@ -87,14 +87,14 @@ def run_command(command: list[str], **kwargs) -> sp.CompletedProcess:
     return sp.run(command, capture_output=True, **kwargs)
 
 
-def request_ytdlp_metadata(yturl: str) -> dict:
+def request_ytdlp_metadata(yturl: str) -> Optional[dict]:
     global CONFIG
     command = [CONFIG["ytdlp_bin"], "-j", yturl]
     process = run_command(command)
     if process.returncode != 0:
         print(f"{Fore.RED}Critical error:")
         print(process.stderr)
-        exit()
+        return None
     metadata = json.loads(process.stdout)
     
     formats = {"audio": [], "video": [], "image": [], "metadata": metadata}
@@ -124,17 +124,17 @@ def ytdlp_download(yturl: str, fmt: str, ytdlp_args: list[str] = []) -> int:
 def ffmpeg_remux(file: Path, *, audio_only: bool = False) -> Path:
     global CONFIG, ENV
     outpath = file.with_suffix(f".remux{file.suffix}")
-    command = [CONFIG["ffmpeg_bin"], "-i", str(file.resolve()), "-c", "copy", "-c:a", "aac", str(outpath.resolve())]
+    command = [CONFIG["ffmpeg_bin"], "-i", str(file.resolve()), "-c", "copy", "-c:v", "libx264", "-c:a", "aac", str(outpath.resolve())]
     print_command(command)
     process = sp.Popen(command, env=ENV)
     process.wait()
     return outpath
 
 
-def pick_yt_audio_format(formats: list[dict], *, default: Optional[str] = None) -> str:
+def pick_yt_audio_format(formats: list[dict], yt_title: str, *, default: Optional[str] = None) -> str:
     options = [
         pick.Option("best audio", "bestaudio"),
-        pick.Option("no audio", None),
+        # pick.Option("no audio", None),            # not tested feature
     ]
     for fmt in formats:
         fmt["filesize"] = get_quantity(fmt.get("filesize"), "B", "N/A")
@@ -152,16 +152,17 @@ def pick_yt_audio_format(formats: list[dict], *, default: Optional[str] = None) 
                 break
 
     selected = pick.pick(options,
-        title="Select audio",
+        title=f"Select audio for: {yt_title}",
         indicator="*",
         default_index=default_index,
         multiselect=False,
         min_selection_count=1,
         clear_screen=True,
     )
+    print("selected:", selected[0].label)
     return selected[0].value
 
-def pick_yt_video_format(formats: list[dict], *, default: Optional[str] = None) -> str:
+def pick_yt_video_format(formats: list[dict], yt_title: str, *, default: Optional[str] = None) -> str:
     options = [
         pick.Option("best video", "bestvideo"),
         pick.Option("no video", None),
@@ -182,16 +183,17 @@ def pick_yt_video_format(formats: list[dict], *, default: Optional[str] = None) 
                 break
 
     selected = pick.pick(options,
-        title="Select video",
+        title=f"Select video for: {yt_title}",
         indicator="*",
         default_index=default_index,
         multiselect=False,
         min_selection_count=1,
         clear_screen=True,
     )
+    print("selected:", selected[0].label)
     return selected[0].value
 
-def pick_yt_thumbnail_format(metadata: dict, *, default: Optional[str] = None) -> tuple[str, list[str]]:
+def pick_yt_thumbnail_format(metadata: dict, yt_title: str, *, default: Optional[str] = None) -> tuple[str, list[str]]:
     options = [
         pick.Option("best thumbnail", "best"),
         pick.Option("embed thumbnail", "embed", description="Supported filetypes for thumbnail embedding are: mp3, mp4"),
@@ -206,7 +208,7 @@ def pick_yt_thumbnail_format(metadata: dict, *, default: Optional[str] = None) -
                 break
 
     selected = pick.pick(options,
-        title="Select thumbnail",
+        title=f"Select thumbnail for: {yt_title}",
         indicator="*",
         default_index=default_index,
         multiselect=False,
@@ -221,6 +223,7 @@ def pick_yt_thumbnail_format(metadata: dict, *, default: Optional[str] = None) -
     else:
         ytdlp_arg = []
     
+    print("selected:", selected[0].label)
     return (selected[0].value, ytdlp_arg)
 
 
@@ -228,8 +231,9 @@ def check_dependency_path(expected_path: Path, error_message: str) -> bool:
     try:
         command = [expected_path]
         process = run_command(command)
-    except FileNotFoundError:
+    except Exception as err:
         print(error_message)
+        print(err)
         return False
     return True
 
@@ -239,54 +243,67 @@ def main() -> None:
     
     outdir = CONFIG["output_dirpath"].absolute()
     if not outdir.exists():
-        print(f"{Fore.RED}output directory not found: [edit line 64 to change it]")
-        print(str(outdir))
-        return
+        outdir.mkdir(parents=True, exist_ok=True)
     print_command(["cd", outdir])
     os.chdir(str(outdir))
     
-    if not check_dependency_path(CONFIG["ffmpeg_bin"], "ffmpeg not found"):
+    if not check_dependency_path(CONFIG["ffmpeg_bin"], f"{Fore.RED}ffmpeg not found"):
         return
-    if not check_dependency_path(CONFIG["ytdlp_bin"], "yt-dlp not found"):
-        return
-    
-    input_url = input("YouTube URL: ").strip()
-    yturl = input_url
-
-    metadata = request_ytdlp_metadata(yturl)
-    filename = metadata.get("metadata").get("filename")
-    filepath = Path(filename)
-
-    audio_format = pick_yt_audio_format(metadata.get("audio"), default=CONFIG.get("audio_format"))
-    video_format = pick_yt_video_format(metadata.get("video"), default=CONFIG.get("video_format"))
-    thumbnail_format = pick_yt_thumbnail_format(metadata.get("metadata"), default=CONFIG.get("thumbnail_format"))
-    
-    audio_only = (audio_format and not video_format)
-    ytdlp_args = [*thumbnail_format[1]]
-
-    if audio_only:
-        ytdlp_args.extend(["-x", "--audio-format", "mp3"])
-        filepath = filepath.with_suffix(".mp3")
-    else:
-        ytdlp_args.extend(["--merge-output-format", "mp4"])
-        filepath = filepath.with_suffix(".mp4")
-
-    fmt = filter(bool, [audio_format, video_format])
-    ytdlp_download(yturl, "+".join(fmt), ytdlp_args)
-    if not filepath.exists():
-        print(f"{Fore.RED}downloaded file not found, expected it here:")
-        print(str(filepath))
+    if not check_dependency_path(CONFIG["ytdlp_bin"], f"{Fore.RED}yt-dlp not found"):
         return
     
-    if not thumbnail_format[0] is None:
-        print(f"{Fore.GREEN}thumbnail stored here:\n", str(filepath.with_suffix(".jpg").absolute()))
-    print(f"{Fore.GREEN}download stored here:\n", str(filepath.absolute()))
+    user_input = input("YouTube URL(s): ").strip()
+    user_input_splitted = re.split(r"[,; \t]+", user_input)
     
-    # remux_path = ffmpeg_remux(filepath, audio_only=audio_only)
-    # print(f"{Fore.GREEN}remuxed output stored here:\n", str(remux_path.absolute()))
+    for user_input in user_input_splitted:
+        yturl = user_input
 
-    input("press ENTER to exit\n")
+        metadata = request_ytdlp_metadata(yturl)
+        if metadata is None:
+            print("skip processing")
+            continue
+        else:
+            yt_title=metadata["metadata"]["title"]
+            print("process video:", yt_title)
+        
+        filename = metadata.get("metadata").get("filename")
+        filepath = Path(filename)
+
+        audio_format = pick_yt_audio_format(metadata.get("audio"), yt_title, default=CONFIG.get("audio_format"))
+        video_format = pick_yt_video_format(metadata.get("video"), yt_title, default=CONFIG.get("video_format"))
+        thumbnail_format = pick_yt_thumbnail_format(metadata.get("metadata"), yt_title, default=CONFIG.get("thumbnail_format"))
+        
+        audio_only = (audio_format and not video_format)
+        ytdlp_args = [*thumbnail_format[1]]
+
+        if audio_only:
+            ytdlp_args.extend(["-x", "--audio-format", "mp3"])
+            filepath = filepath.with_suffix(".mp3")
+        else:
+            ytdlp_args.extend(["--merge-output-format", "mp4"])
+            filepath = filepath.with_suffix(".mp4")
+
+        fmt = filter(bool, [audio_format, video_format])
+        ytdlp_download(yturl, "+".join(fmt), ytdlp_args)
+        if not filepath.exists():
+            print(f"{Fore.RED}downloaded file not found, expected it here:")
+            print(str(filepath))
+            return
+        
+        if not thumbnail_format[0] is None:
+            print(f"{Fore.GREEN}thumbnail stored here:\n", str(filepath.with_suffix(".jpg").absolute()))
+        print(f"{Fore.GREEN}download stored here:\n", str(filepath.absolute()))
+        
+        # remux_path = ffmpeg_remux(filepath, audio_only=audio_only)
+        # print(f"{Fore.GREEN}remuxed output stored here:\n", str(remux_path.absolute()))
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as err:
+        print(f"{Fore.WHITE+Back.RED}an unexpected critical error occured:")
+        print(err)
+
+    input("\npress ENTER to exit\n")
+        

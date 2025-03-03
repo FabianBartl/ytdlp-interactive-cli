@@ -1,3 +1,4 @@
 pick          # not pypick !
 quantiphy
 colorama
+yt-dlp
